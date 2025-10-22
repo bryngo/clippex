@@ -35,3 +35,4 @@ clippex-*.tar
 npm-debug.log
 /assets/node_modules/
 
+envs/
