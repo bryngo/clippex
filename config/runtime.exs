@@ -31,7 +31,11 @@ if System.get_env("PHX_SERVER") do
 end
 
 # For now, just have this in runtime.exs. Overwrite in env speicific configs as needed.
-config :clippex, :twitch, test: env!("TWITCH_TEST", :string!)
+config :clippex, :twitch,
+  test: env!("TWITCH_TEST", :string!),
+  client_id: env!("TWITCH_CLIENT_ID", :string!),
+  access_token: env!("TWITCH_ACCESS_TOKEN", :string!),
+  client_secret: env!("TWITCH_CLIENT_SECRET", :string!)
 
 if config_env() == :prod do
   database_url =
