@@ -85,6 +85,40 @@ defmodule Clippex.Twitch do
     end
   end
 
+  def get_download_url(clip_id, broadcaster_id, editor_id) do
+    config = Application.get_env(:clippex, :twitch)
+    client_id = config[:client_id]
+    access_token = config[:access_token]
+
+    if is_nil(client_id) or is_nil(access_token) do
+      {:error, :missing_credentials}
+    else
+      req =
+        Req.new(base_url: @base_url)
+        |> Req.Request.put_header("Client-Id", client_id)
+        |> Req.Request.put_header("Authorization", "Bearer #{access_token}")
+
+      params = [
+        clip_id: clip_id,
+        broadcaster_id: broadcaster_id,
+        editor_id: editor_id
+      ]
+
+      case Req.get(req, url: "/clips/downloads", params: params) do
+        {:ok, %Req.Response{status: 200, body: %{"data" => [data | _]}}} ->
+          {:ok, data["download_url"]}
+
+        {:ok, %Req.Response{status: status, body: body}} ->
+          Logger.error("Twitch Download API error: #{status} - #{inspect(body)}")
+          {:error, :api_error}
+
+        {:error, reason} ->
+          Logger.error("Twitch Download API request failed: #{inspect(reason)}")
+          {:error, :request_failed}
+      end
+    end
+  end
+
   def get_app_access_token do
     config = Application.get_env(:clippex, :twitch)
     client_id = config[:client_id]

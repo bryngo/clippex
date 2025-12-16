@@ -5,7 +5,20 @@ defmodule ClippexWeb.TwitchLive.Clips do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, clips: [], error: nil, loading: false, selected_clip: nil)}
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Clippex.PubSub, "clips:stitch")
+    end
+
+    {:ok,
+     assign(socket,
+       clips: [],
+       error: nil,
+       loading: false,
+       selected_clip: nil,
+       username_value: "",
+       stitched_url: nil,
+       stitching: false
+     )}
   end
 
   @impl true
@@ -13,7 +26,8 @@ defmodule ClippexWeb.TwitchLive.Clips do
     if username == "" do
       {:noreply, put_flash(socket, :error, "Please enter a Twitch Username")}
     else
-      socket = assign(socket, loading: true, error: nil, selected_clip: nil)
+      socket =
+        assign(socket, loading: true, error: nil, selected_clip: nil, username_value: username)
 
       case Twitch.get_clips_by_username(username) do
         {:ok, clips} ->
@@ -37,6 +51,23 @@ defmodule ClippexWeb.TwitchLive.Clips do
   end
 
   @impl true
+  def handle_event("stitch", %{"username" => username}, socket) do
+    if username == "" do
+      {:noreply, put_flash(socket, :error, "Please enter a Twitch Username")}
+    else
+      Phoenix.PubSub.broadcast(Clippex.PubSub, "clips:stitch", {:stitch, username})
+
+      {:noreply,
+       assign(socket, stitching: true) |> put_flash(:info, "Stitching started for #{username}...")}
+    end
+  end
+
+  @impl true
+  def handle_event("validate_search", %{"username" => username}, socket) do
+    {:noreply, assign(socket, username_value: username)}
+  end
+
+  @impl true
   def handle_event("play", %{"url" => embed_url}, socket) do
     # Add parent=localhost to satisfy Twitch embed policy
     embed_url = "#{embed_url}&parent=localhost"
@@ -49,15 +80,31 @@ defmodule ClippexWeb.TwitchLive.Clips do
   end
 
   @impl true
+  def handle_info({:stitch_complete, _username, url}, socket) do
+    {:noreply,
+     assign(socket, stitching: false, stitched_url: url)
+     |> put_flash(:info, "Stitching complete! Watch below.")}
+  end
+
+  def handle_info({:stitch_failed, _username, reason}, socket) do
+    {:noreply,
+     assign(socket, stitching: false)
+     |> put_flash(:error, "Stitching failed: #{reason}")}
+  end
+
+  def handle_info(_, socket), do: {:noreply, socket}
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="mx-auto max-w-4xl">
       <h1 class="text-2xl font-bold mb-4">Twitch Clips</h1>
 
-      <form phx-submit="search" class="mb-8 flex gap-4">
+      <form phx-submit="search" phx-change="validate_search" class="mb-8 flex gap-4">
         <input
           type="text"
           name="username"
+          value={@username_value}
           placeholder="Enter Twitch Username (e.g. ninja)"
           class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
         />
@@ -68,7 +115,64 @@ defmodule ClippexWeb.TwitchLive.Clips do
         >
           {if @loading, do: "Loading...", else: "Get Clips"}
         </button>
+        <button
+          type="button"
+          phx-click="stitch"
+          phx-value-username={@username_value}
+          class="rounded-md bg-green-600 px-4 py-2 text-white hover:bg-green-700"
+        >
+          Stitch Clips
+        </button>
       </form>
+
+      <%= if @stitching do %>
+        <div class="mb-8 p-4 bg-blue-50 text-blue-700 rounded-md flex items-center gap-2">
+          <svg
+            class="animate-spin h-5 w-5 text-blue-700"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+            </circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            >
+            </path>
+          </svg>
+          Processing your video stitch... This may take a minute.
+        </div>
+      <% end %>
+
+      <%= if @stitched_url do %>
+        <div class="mb-8 p-6 bg-green-50 rounded-xl border border-green-100">
+          <h2 class="text-xl font-bold text-green-900 mb-4">✨ Stitched Video Ready!</h2>
+          <video controls class="w-full rounded-lg shadow-lg mb-4" src={@stitched_url}></video>
+          <a
+            href={@stitched_url}
+            download
+            class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+              class="w-5 h-5 mr-2"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+              />
+            </svg>
+            Download Video
+          </a>
+        </div>
+      <% end %>
 
       <%= if @error do %>
         <div class="mb-4 rounded-md bg-red-50 p-4 text-red-700">

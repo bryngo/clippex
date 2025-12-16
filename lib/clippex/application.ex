@@ -14,6 +14,7 @@ defmodule Clippex.Application do
       {Phoenix.PubSub, name: Clippex.PubSub},
       # Start a worker by calling: Clippex.Worker.start_link(arg)
       # {Clippex.Worker, arg},
+      Clippex.Workers.StitchWorker,
       # Start to serve requests, typically the last entry
       ClippexWeb.Endpoint
     ]
