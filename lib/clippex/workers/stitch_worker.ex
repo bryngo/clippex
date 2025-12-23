@@ -46,28 +46,34 @@ defmodule Clippex.Workers.StitchWorker do
   defp process_stitch(username) do
     case Twitch.get_clips_by_username(username) do
       {:ok, clips} ->
-        # Take top 5
-        top_clips = Enum.take(clips, 5)
+        # Take top 10 clips
+        top_clips = Enum.take(clips, 10)
         Logger.info("Found #{length(top_clips)} clips for #{username}. Starting process...")
 
         # Create a unique directory for this job
-        job_id = "#{username}_#{System.system_time(:second)}"
-        output_dir = Path.join(:code.priv_dir(:clippex), "static/downloads/#{job_id}")
-        File.mkdir_p!(output_dir)
+        clips_output_dir =
+          Path.join(:code.priv_dir(:clippex), "static/downloads/clips/#{username}")
+
+        File.mkdir_p!(clips_output_dir)
 
         # Download clips
         clip_paths =
           top_clips
           |> Enum.with_index()
           |> Enum.map(fn {clip, index} ->
-            download_clip(clip, output_dir, index)
+            download_clip(clip, clips_output_dir, index)
           end)
           |> Enum.filter(&(&1 != nil))
 
         if length(clip_paths) > 0 do
           # Stitch using ffmpeg
           output_filename = "stitched.mp4"
-          output_path = Path.join(output_dir, output_filename)
+
+          stitched_output_dir =
+            Path.join(:code.priv_dir(:clippex), "static/downloads/stitched/#{username}")
+
+          File.mkdir_p!(stitched_output_dir)
+          output_path = Path.join(stitched_output_dir, output_filename)
 
           # Construct inputs
           inputs =
@@ -103,7 +109,7 @@ defmodule Clippex.Workers.StitchWorker do
             {_, 0} ->
               Logger.info("Stitching complete for #{username}")
               # URL relative to static
-              public_url = "/downloads/#{job_id}/#{output_filename}"
+              public_url = "/downloads/stitched/#{username}/#{output_filename}"
 
               Phoenix.PubSub.broadcast(
                 Clippex.PubSub,
@@ -120,6 +126,9 @@ defmodule Clippex.Workers.StitchWorker do
                 {:stitch_failed, username, "Stitching process failed"}
               )
           end
+
+          # Clean up
+          File.rm_rf!(clips_output_dir)
         else
           Logger.error("No clips could be downloaded.")
 
@@ -141,8 +150,8 @@ defmodule Clippex.Workers.StitchWorker do
     end
   end
 
-  defp download_clip(%{"url" => clip_url, "id" => id} = _clip, output_dir, index) do
-    filename = "clip_#{index}.mp4"
+  defp download_clip(%{"url" => clip_url, "id" => id} = _clip, output_dir, _index) do
+    filename = "#{id}.mp4"
     path = Path.join(output_dir, filename)
 
     # Use yt-dlp to download

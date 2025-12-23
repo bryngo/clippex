@@ -4,6 +4,7 @@ defmodule Clippex.Twitch do
   """
 
   require Logger
+  alias Clippex.Twitch.Clip
 
   @base_url "https://api.twitch.tv/helix"
 
@@ -31,6 +32,7 @@ defmodule Clippex.Twitch do
 
       case Req.get(req, url: "/clips", params: params) do
         {:ok, %Req.Response{status: 200, body: %{"data" => data}}} ->
+          Clip.save_new_clips(data)
           {:ok, data}
 
         {:ok, %Req.Response{status: status, body: body}} ->
