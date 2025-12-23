@@ -82,11 +82,21 @@ defmodule Clippex.Workers.StitchWorker do
 
           num_clips = length(clip_paths)
 
-          filter_complex =
+          # Generate filter complex to normalize all clips to 1920x1080
+          scale_filters =
             0..(num_clips - 1)
-            |> Enum.map(fn i -> "[#{i}:v][#{i}:a]" end)
+            |> Enum.map(fn i ->
+              "[#{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[v#{i}]"
+            end)
+            |> Enum.join(";")
+
+          concat_inputs =
+            0..(num_clips - 1)
+            |> Enum.map(fn i -> "[v#{i}][#{i}:a]" end)
             |> Enum.join("")
-            |> Kernel.<>("concat=n=#{num_clips}:v=1:a=1[v][a]")
+
+          filter_complex =
+            "#{scale_filters};#{concat_inputs}concat=n=#{num_clips}:v=1:a=1[v][a]"
 
           # ffmpeg -i clip1 -i clip2 ... -filter_complex ... -map [v] -map [a] output.mp4
           args =
