@@ -11,6 +11,16 @@ Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 
 Ready to run in production? Please [check our deployment guides](https://hexdocs.pm/phoenix/deployment.html).
 
+- To get the `TWITCH_ACCESS_TOKEN` value, you have to hit another API
+
+```
+curl --location 'https://id.twitch.tv/oauth2/token' \
+--header 'Content-Type: application/x-www-form-urlencoded' \
+--data-urlencode 'client_id={{TWITCH_CLIENT_ID}}' \
+--data-urlencode 'client_secret={{TWITCH_CLIENT_SECRET}}' \
+--data-urlencode 'grant_type=client_credentials'
+```
+
 ## Learn more
 
 * Official website: https://www.phoenixframework.org/
