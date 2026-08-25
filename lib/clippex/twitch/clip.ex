@@ -33,7 +33,6 @@ defmodule Clippex.Twitch.Clip do
     |> validate_required([
       :clip_id,
       :broadcaster_id,
-      :video_id,
       :game_id,
       :title,
       :clip_created_at,

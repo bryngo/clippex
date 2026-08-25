@@ -12,15 +12,21 @@ defmodule Clippex.Workers.StitchWorker do
   @impl true
   def init(_) do
     Phoenix.PubSub.subscribe(Clippex.PubSub, @topic)
-    Logger.info("StitchWorker started and subscribed to #{@topic}")
-    {:ok, nil}
+    encoder_args = detect_encoder_args()
+
+    Logger.info(
+      "StitchWorker started and subscribed to #{@topic} (encoder: #{inspect(encoder_args)})"
+    )
+
+    {:ok, %{encoder_args: encoder_args}}
   end
 
   @impl true
   def handle_info({:stitch, username}, state) do
     Logger.info("StitchWorker received request for user: #{username}")
 
-    Task.start(fn -> process_stitch(username) end)
+    encoder_args = state.encoder_args
+    Task.start(fn -> process_stitch(username, encoder_args) end)
 
     {:noreply, state}
   end
@@ -43,7 +49,31 @@ defmodule Clippex.Workers.StitchWorker do
     {:noreply, state}
   end
 
-  defp process_stitch(username) do
+  defp detect_encoder_args do
+    test_args = [
+      "-f",
+      "lavfi",
+      "-i",
+      "nullsrc=s=64x64:d=0.1",
+      "-c:v",
+      "h264_nvenc",
+      "-f",
+      "null",
+      "-"
+    ]
+
+    case System.cmd("ffmpeg", test_args, stderr_to_stdout: true) do
+      {_, 0} ->
+        Logger.info("h264_nvenc available, using GPU encoding")
+        ["-c:v", "h264_nvenc", "-preset", "fast"]
+
+      _ ->
+        Logger.info("h264_nvenc unavailable, falling back to libx264")
+        ["-c:v", "libx264", "-preset", "veryfast"]
+    end
+  end
+
+  defp process_stitch(username, encoder_args) do
     case Twitch.get_clips_by_username(username) do
       {:ok, clips} ->
         # Take top 10 clips
@@ -56,18 +86,26 @@ defmodule Clippex.Workers.StitchWorker do
 
         File.mkdir_p!(clips_output_dir)
 
-        # Download clips
+        # Download clips concurrently (I/O-bound, safe to parallelize)
         clip_paths =
           top_clips
           |> Enum.with_index()
-          |> Enum.map(fn {clip, index} ->
-            download_clip(clip, clips_output_dir, index)
+          |> Task.async_stream(
+            fn {clip, index} -> download_clip(clip, clips_output_dir, index) end,
+            max_concurrency: 4,
+            timeout: 60_000,
+            on_timeout: :kill_task
+          )
+          |> Enum.map(fn
+            {:ok, result} -> result
+            {:exit, _reason} -> nil
           end)
           |> Enum.filter(&(&1 != nil))
 
         if length(clip_paths) > 0 do
           # Stitch using ffmpeg
-          output_filename = "stitched.mp4"
+          timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d%H%M%S")
+          output_filename = "stitched_#{timestamp}.mp4"
 
           stitched_output_dir =
             Path.join(:code.priv_dir(:clippex), "static/downloads/stitched/#{username}")
@@ -107,9 +145,10 @@ defmodule Clippex.Workers.StitchWorker do
                 "-map",
                 "[v]",
                 "-map",
-                "[a]",
-                "-c:v",
-                "libx264",
+                "[a]"
+              ] ++
+              encoder_args ++
+              [
                 "-c:a",
                 "aac",
                 output_path

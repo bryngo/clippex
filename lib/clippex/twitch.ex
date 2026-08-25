@@ -22,7 +22,7 @@ defmodule Clippex.Twitch do
         |> Req.Request.put_header("Authorization", "Bearer #{access_token}")
 
       ended_at = DateTime.utc_now()
-      started_at = DateTime.add(ended_at, -30, :day)
+      started_at = DateTime.add(ended_at, -90, :day)
 
       params = [
         broadcaster_id: broadcaster_id,
